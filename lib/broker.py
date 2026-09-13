@@ -201,6 +201,77 @@ def accounts_for(reports: list[dict[str, Any]], provider: str) -> int:
     return sum(1 for report in reports if report.get("provider") == provider)
 
 
+def account_label(report: dict[str, Any]) -> str:
+    """A short, stable name for the credential behind one report.
+
+    The broker stamps `metadata.email` for account-scoped providers, which is
+    what distinguishes two subscriptions on the same provider. The local part
+    is enough to tell them apart on a bar and keeps the address off screen.
+    """
+    metadata = _dict(report.get("metadata"))
+    email = str(metadata.get("email") or "").strip()
+    if email:
+        return email.split("@", 1)[0]
+    account_id = str(metadata.get("accountId") or "").strip()
+    return account_id[:8] if account_id else "account"
+
+
+def limits_per_account(
+    reports: list[dict[str, Any]], provider: str
+) -> list[dict[str, Any]]:
+    """One limit per window PER credential, labelled by account.
+
+    Use this where the accounts are not interchangeable — two paid Claude
+    subscriptions are two things to watch, and collapsing them would hide the
+    one that is nearly spent.
+    """
+    out: list[dict[str, Any]] = []
+    matching = [report for report in reports if report.get("provider") == provider]
+    for report in matching:
+        label = account_label(report)
+        for entry in report.get("limits") or []:
+            if not isinstance(entry, dict):
+                continue
+            amount = _dict(entry.get("amount"))
+            fraction = _fraction(amount)
+            if fraction is None:
+                continue
+            window = _dict(entry.get("window"))
+            title = _title(entry)
+            # Only qualify the title when more than one account is in play.
+            if len(matching) > 1:
+                title = f"{title} · {label}"
+            out.append(
+                au.limit(
+                    title,
+                    fraction,
+                    au.epoch_ms_iso(window.get("resetsAt")),
+                    used=amount.get("used"),
+                    allowance=amount.get("limit"),
+                )
+            )
+    return out
+
+
+def scan_per_account(
+    agent_id: str, name: str, broker_provider: str, tier_label: str = ""
+) -> dict[str, Any]:
+    """Broker-backed scan that keeps every account's windows separate."""
+    reports = fetch_reports()
+    limits = limits_per_account(reports, broker_provider)
+    if not limits:
+        if accounts_for(reports, broker_provider) == 0:
+            raise au.CollectorError(
+                f"The auth broker holds no {broker_provider} credential "
+                f"(add one with `omp auth-broker login {broker_provider}`)"
+            )
+        raise au.CollectorError(f"The auth broker reported no {broker_provider} usage windows")
+    accounts = accounts_for(reports, broker_provider)
+    tier = tier_label
+    if accounts > 1:
+        tier = f"{tier_label} · {accounts} accounts".strip(" ·")
+    return au.record(agent_id, name, ready=True, limits=limits, tier_label=tier)
+
 def scan_provider(
     agent_id: str, name: str, broker_provider: str, tier_label: str = ""
 ) -> dict[str, Any]:

@@ -1,0 +1,55 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Alibaba Model Studio plan usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Alibaba Model Studio coding / token plan quota, via the omp auth broker.
+
+The console reports plan quota only through `/data/api.json` behind a session
+cookie and an XSRF token — a DashScope API key gets redirected to the login
+page. The broker holds the console credential, so its usage report is the
+headless route.
+
+Both Alibaba plan flavours land in one record: a machine normally subscribes
+to one of them, and two near-identical rows would say nothing extra.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "alibaba"
+AGENT_NAME = "Alibaba Model Studio"
+BROKER_PROVIDERS = ("alibaba-coding-plan", "alibaba-token-plan")
+AUTH_HELP = (
+    "Add a credential with `omp auth-broker login alibaba-coding-plan` "
+    "(or alibaba-token-plan)."
+)
+
+
+def scan() -> dict:
+    reports = broker.fetch_reports()
+    for provider in BROKER_PROVIDERS:
+        limits = broker.limits_for(reports, provider)
+        if limits:
+            tier = "Coding plan" if provider.endswith("coding-plan") else "Token plan"
+            return au.record(AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label=tier)
+    raise au.CollectorError(AUTH_HELP)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Alibaba usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

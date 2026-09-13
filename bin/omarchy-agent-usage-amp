@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Amp balance record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Amp (ampcode.com) credit balance.
+
+Source: GET https://ampcode.com/api/internal?userDisplayBalanceInfo with the
+Amp access token as a bearer credential. Amp is prepaid, including its free
+grant, so the record carries a balance ledger.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "amp"
+AGENT_NAME = "Amp"
+AUTH_HELP = (
+    "Set AMP_API_KEY (ampcode.com -> Settings), or put "
+    '{"apiKey": "..."} in ~/.config/omarchy/agents/amp.json.'
+)
+BALANCE_URL = "https://ampcode.com/api/internal?userDisplayBalanceInfo"
+
+
+def _amount(value) -> float | None:
+    """Amp reports dollars as numbers or as cent-denominated integers."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _first(payload: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = _amount(payload.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("AMP_API_KEY", "AMP_TOKEN", "AMP_ACCESS_TOKEN"),
+        codexbar_id="amp",
+        files=("~/.config/amp/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="Amp unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = au.get_json(
+        BALANCE_URL,
+        headers={"Authorization": f"Bearer {key}", "Origin": "https://ampcode.com"},
+        label="Amp",
+    )
+    if not isinstance(payload, dict):
+        raise au.CollectorError("Amp returned an unexpected balance payload")
+    info = payload.get("userDisplayBalanceInfo")
+    info = info if isinstance(info, dict) else payload
+
+    remaining = _first(info, "balance", "remaining", "creditsRemaining", "balanceDollars")
+    funded = _first(info, "totalCredits", "granted", "creditsGranted", "limit")
+    if remaining is None and funded is None:
+        raise au.CollectorError("Amp reported no balance fields")
+    if remaining is None:
+        remaining = 0.0
+    if funded is None or funded < remaining:
+        funded = remaining
+
+    return au.record(
+        AGENT_ID,
+        AGENT_NAME,
+        ready=True,
+        tier_label="Prepaid",
+        balance={
+            "remaining": round(remaining, 4),
+            "funded": round(funded, 4),
+            "spent": round(max(0.0, funded - remaining), 4),
+            "currency": "USD",
+            "estimated": False,
+        },
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Amp usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -22,21 +22,27 @@ bin/update-all  (timer, 5 min) ────writes──────────�
 
 Direct, one API key each:
 
-| Collector | Source | Windows reported | Credential |
+| Collector | Source | Reports | Credential |
 |---|---|---|---|
 | `clinepass` | `api.cline.bot/api/v1/users/me/plan/usage-limits` | 5-hour, weekly, monthly | API key |
 | `kimi` | `api.kimi.com/coding/v1/usages` | rate window(s) + weekly allowance | API key |
 | `minimax` | `platform.minimax.io/v1/api/openplatform/coding_plan/remains` | session + weekly, per model family | API key |
 | `openrouter` | `openrouter.ai/api/v1/key` + `/credits` | key spend cap, prepaid balance | API key |
+| `warp` | `app.warp.dev/graphql/v2?op=GetRequestLimitInfo` | AI request allowance, bonus credits | API key |
+| `kilo` | `api.kilo.ai/api/profile` | prepaid balance, spend limit | API key / CLI session |
+| `amp` | `ampcode.com/api/internal?userDisplayBalanceInfo` | prepaid balance | API key |
 | `factory` | `app.factory.ai/api/billing/limits` + subscription usage | 5-hour, weekly, monthly, plan tokens | droid CLI session (**opt-in**, see below) |
 
 Broker-backed, no local credential at all:
 
-| Collector | Broker provider | Windows reported |
+| Collector | Broker provider | Reports |
 |---|---|---|
-| `claude-max` | `anthropic` | 5-hour, 7-day (per model family) |
+| `claude-max` | `anthropic` | 5-hour and 7-day windows, **one set per account** |
 | `cursor` | `cursor` | monthly request and spend caps |
 | `opencode-go` | `opencode-go` | 5-hour, weekly, monthly |
+| `alibaba` | `alibaba-coding-plan`, `alibaba-token-plan` | whichever plan the credential covers |
+| `devin` | `devin` | plan windows |
+| `ollama-cloud` | `ollama-cloud` | plan windows when Ollama publishes any |
 
 Every collector prints a record even when it fails, carrying
 `usageStatusText` and `authHelpText` so the panel can explain itself instead

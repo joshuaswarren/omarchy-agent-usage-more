@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Ollama Cloud usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Ollama Cloud plan usage, via the omp auth broker.
+
+Ollama meters GPU time on the web dashboard; the API key authenticates
+inference only. The broker holds the account credential, so any limit Ollama
+publishes arrives through its usage report — and when Ollama publishes none,
+this record says so instead of drawing an empty meter.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "ollama-cloud"
+AGENT_NAME = "Ollama Cloud"
+BROKER_PROVIDER = "ollama-cloud"
+AUTH_HELP = "Add an Ollama Cloud credential with `omp auth-broker login ollama-cloud`."
+
+
+def scan() -> dict:
+    reports = broker.fetch_reports()
+    limits = broker.limits_for(reports, BROKER_PROVIDER)
+    if limits:
+        return au.record(AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label="Plan")
+    if broker.accounts_for(reports, BROKER_PROVIDER):
+        # The credential is live but Ollama exposes no quota window for it:
+        # a signed-in account with unlimited/unmetered usage looks like this.
+        return au.record(
+            AGENT_ID,
+            AGENT_NAME,
+            ready=True,
+            tier_label="Plan",
+            status_text="Ollama publishes no quota window",
+            auth_help="GPU-time usage is shown only on ollama.com/settings.",
+        )
+    raise au.CollectorError(AUTH_HELP)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Ollama Cloud usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

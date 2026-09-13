@@ -39,7 +39,9 @@ def main() -> int:
     return au.run(
         AGENT_ID,
         AGENT_NAME,
-        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Max"),
+        # Two paid Claude subscriptions are two things to watch, so every
+        # account keeps its own windows instead of being merged away.
+        lambda: broker.scan_per_account(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Max"),
         AUTH_HELP,
     )
 

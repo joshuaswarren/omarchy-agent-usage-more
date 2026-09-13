@@ -1,0 +1,132 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Kilo Code balance record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Kilo Code credit balance.
+
+Source: GET https://api.kilo.ai/api/profile with the account token as a bearer
+credential. Kilo is prepaid: the profile carries credit blocks in micro-USD,
+so the record reports a balance ledger rather than a rate window.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "kilo"
+AGENT_NAME = "Kilo Code"
+AUTH_HELP = (
+    "Sign in to the Kilo CLI, or set KILO_API_KEY / put "
+    '{"apiKey": "..."} in ~/.config/omarchy/agents/kilo.json.'
+)
+PROFILE_URL = "https://api.kilo.ai/api/profile"
+MICRO = 1_000_000.0
+
+
+def _jsonc_token() -> str:
+    """Read a token out of ~/.config/kilo/kilo.jsonc, comments and all."""
+    path = Path("~/.config/kilo/kilo.jsonc").expanduser()
+    try:
+        text = path.read_text()
+    except OSError:
+        return ""
+    cleaned = "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("//")
+    )
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(parsed, dict):
+        return ""
+    for key in ("apiKey", "token", "accessToken", "kilocodeToken"):
+        value = str(parsed.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _money(value) -> float:
+    try:
+        return max(0.0, float(value)) / MICRO
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("KILO_API_KEY", "KILOCODE_API_KEY"),
+        codexbar_id="kilo",
+    ) or _jsonc_token()
+    if not key:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="Kilo unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = au.get_json(
+        PROFILE_URL, headers={"Authorization": f"Bearer {key}"}, label="Kilo"
+    )
+    if not isinstance(payload, dict):
+        raise au.CollectorError("Kilo returned an unexpected profile payload")
+
+    user = payload.get("user") if isinstance(payload.get("user"), dict) else payload
+    blocks = user.get("creditBlocks")
+    funded = remaining = 0.0
+    if isinstance(blocks, list):
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            funded += _money(block.get("amount_mUsd"))
+            remaining += _money(block.get("balance_mUsd"))
+    if not isinstance(blocks, list) or not blocks:
+        # Zero-balance accounts come back with no blocks, only a total.
+        remaining = _money(user.get("totalBalance_mUsd"))
+        funded = max(funded, remaining)
+
+    limits = []
+    limit_cents = user.get("limitCents")
+    if isinstance(limit_cents, (int, float)) and limit_cents > 0:
+        spent = max(0.0, funded - remaining)
+        limits.append(
+            au.limit(
+                "Spend limit",
+                au.fraction(spent, limit_cents / 100.0),
+                used=round(spent, 4),
+                allowance=limit_cents / 100.0,
+            )
+        )
+
+    return au.record(
+        AGENT_ID,
+        AGENT_NAME,
+        ready=True,
+        limits=limits,
+        tier_label="Prepaid",
+        balance={
+            "remaining": round(remaining, 4),
+            "funded": round(funded, 4),
+            "spent": round(max(0.0, funded - remaining), 4),
+            "currency": "USD",
+            "estimated": False,
+        },
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Kilo usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

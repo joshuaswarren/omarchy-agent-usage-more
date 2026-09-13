@@ -1,0 +1,174 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Warp usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Warp AI request limits.
+
+Source: POST https://app.warp.dev/graphql/v2?op=GetRequestLimitInfo with a
+Warp API key as a bearer token (Warp settings -> AI -> API keys; see
+https://docs.warp.dev/reference/cli/api-keys). The response reports the
+request allowance, how much of it this refresh window has consumed, and any
+bonus request credits.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "warp"
+AGENT_NAME = "Warp"
+AUTH_HELP = (
+    "Set WARP_API_KEY (Warp -> Settings -> AI -> API keys), or save it to "
+    "~/.config/omarchy/agents/warp.json as {\"apiKey\": \"...\"}."
+)
+GRAPHQL_URL = "https://app.warp.dev/graphql/v2?op=GetRequestLimitInfo"
+QUERY = """
+query GetRequestLimitInfo($requestContext: RequestContext!) {
+  user(requestContext: $requestContext) {
+    __typename
+    ... on UserOutput {
+      user {
+        requestLimitInfo {
+          isUnlimited
+          nextRefreshTime
+          requestLimit
+          requestsUsedSinceLastRefresh
+        }
+        bonusGrants {
+          requestCreditsGranted
+          requestCreditsRemaining
+          expiration
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _post(key: str) -> dict:
+    body = json.dumps(
+        {
+            "query": QUERY,
+            "variables": {
+                "requestContext": {
+                    "clientContext": {},
+                    # Warp requires an OS context; it does not gate on the value.
+                    "osContext": {"category": "Linux", "name": "Linux", "version": "1.0"},
+                }
+            },
+        }
+    ).encode()
+    request = urllib.request.Request(
+        GRAPHQL_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "omarchy-agent-usage-more/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=au.DEFAULT_TIMEOUT) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise au.CollectorError("Warp rejected the API key") from error
+        raise au.CollectorError(f"Warp returned HTTP {error.code}") from error
+    except urllib.error.URLError as error:
+        raise au.CollectorError("Could not reach Warp") from error
+    except json.JSONDecodeError as error:
+        raise au.CollectorError("Warp returned invalid JSON") from error
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("WARP_API_KEY", "WARP_TOKEN"),
+        codexbar_id="warp",
+        files=("~/.config/warp/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="Warp unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = _post(key)
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if errors:
+        message = ""
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            message = str(errors[0].get("message") or "")
+        raise au.CollectorError(f"Warp API error: {message or 'unspecified'}")
+
+    user = ((payload.get("data") or {}).get("user") or {}).get("user") or {}
+    info = user.get("requestLimitInfo") or {}
+    if not isinstance(info, dict) or not info:
+        raise au.CollectorError("Warp returned no request-limit information")
+
+    if info.get("isUnlimited") is True:
+        return au.record(
+            AGENT_ID,
+            AGENT_NAME,
+            ready=True,
+            tier_label="Unlimited",
+            status_text="Unlimited requests on this plan",
+        )
+
+    allowance = info.get("requestLimit")
+    used = info.get("requestsUsedSinceLastRefresh")
+    if not isinstance(allowance, (int, float)) or allowance <= 0:
+        raise au.CollectorError("Warp reported no request allowance")
+    limits = [
+        au.limit(
+            "AI requests",
+            au.fraction(used, allowance),
+            au.iso(info.get("nextRefreshTime")),
+            used=used,
+            allowance=allowance,
+        )
+    ]
+
+    # Bonus grants are prepaid request credits, so they read as a balance.
+    granted = remaining = 0.0
+    for grant in user.get("bonusGrants") or []:
+        if not isinstance(grant, dict):
+            continue
+        granted += float(grant.get("requestCreditsGranted") or 0)
+        remaining += float(grant.get("requestCreditsRemaining") or 0)
+    balance = None
+    if granted > 0:
+        balance = {
+            "remaining": remaining,
+            "funded": granted,
+            "spent": max(0.0, granted - remaining),
+            "currency": "requests",
+            "estimated": False,
+        }
+
+    return au.record(
+        AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label="Plan", balance=balance
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Warp usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
