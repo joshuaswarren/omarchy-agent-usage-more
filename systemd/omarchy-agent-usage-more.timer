@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh extra Omarchy AI usage records every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

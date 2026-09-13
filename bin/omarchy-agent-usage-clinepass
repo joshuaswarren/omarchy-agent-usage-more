@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the ClinePass usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""ClinePass (app.cline.bot) rolling 5-hour / weekly / monthly quota windows.
+
+Source: GET https://api.cline.bot/api/v1/users/me/plan/usage-limits with the
+account API key as a bearer token. The response reports percent-used per
+window, so there is no token ledger to aggregate and no cache to force past.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "clinepass"
+AGENT_NAME = "ClinePass"
+AUTH_HELP = (
+    "Set CLINE_API_KEY, or save the key from app.cline.bot (Settings -> API Keys) "
+    "to ~/.config/cline/api-key."
+)
+USAGE_URL = "https://api.cline.bot/api/v1/users/me/plan/usage-limits"
+
+# Cline names its windows; the panel wants human titles and window lengths.
+WINDOW_TITLES = {
+    "five_hour": "Session (5-hour)",
+    "weekly": "Weekly (7-day)",
+    "monthly": "Monthly",
+}
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("CLINE_API_KEY", "CLINEPASS_API_KEY"),
+        codexbar_id="clinepass",
+        files=("~/.config/cline/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID,
+            AGENT_NAME,
+            status_text="ClinePass unavailable",
+            auth_help=AUTH_HELP,
+        )
+
+    payload = au.get_json(
+        USAGE_URL,
+        headers={"Authorization": f"Bearer {key}"},
+        label="ClinePass",
+    )
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise au.CollectorError("ClinePass reported the usage request as failed")
+    data = payload.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("limits"), list):
+        raise au.CollectorError("ClinePass returned no usage limits")
+
+    limits = []
+    for entry in data["limits"]:
+        if not isinstance(entry, dict):
+            continue
+        title = WINDOW_TITLES.get(str(entry.get("type") or ""))
+        if title is None:
+            continue
+        limits.append(
+            au.limit(
+                title,
+                au.percent_fraction(entry.get("percentUsed")),
+                au.iso(entry.get("resetsAt")),
+            )
+        )
+
+    return au.record(
+        AGENT_ID,
+        AGENT_NAME,
+        ready=True,
+        limits=limits,
+        tier_label="Pass",
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the ClinePass usage record")
+    # One request serves both flags; they exist so every collector takes the
+    # same invocation as the stock ones.
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

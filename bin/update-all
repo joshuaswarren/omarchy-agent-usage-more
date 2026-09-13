@@ -1,0 +1,41 @@
+#!/bin/bash
+# Run every collector in this directory and write its record where the Omarchy
+# agents panel (and any other renderer that watches the directory) reads it.
+# Collectors run in parallel; a failing or hung one never blocks the others.
+
+set -uo pipefail
+DIR="${BASH_SOURCE[0]%/*}"
+USAGE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/agents/usage"
+COLLECTOR_TIMEOUT="${AGENT_USAGE_MORE_TIMEOUT:-60}"
+JSON_MAX_BYTES="${AGENT_USAGE_JSON_MAX_BYTES:-1048576}"
+mkdir -p "$USAGE_DIR"
+
+status=0
+pids=()
+
+for collector in "$DIR"/omarchy-agent-usage-*; do
+  [[ -x $collector ]] || continue
+  agent=${collector##*/omarchy-agent-usage-}
+  {
+    if record=$(timeout "$COLLECTOR_TIMEOUT" "$collector" "$@" 2>/dev/null | head -c "$((JSON_MAX_BYTES + 1))") \
+      && [[ -n $record ]] \
+      && ((${#record} <= JSON_MAX_BYTES)) \
+      && jq -e . >/dev/null 2>&1 <<<"$record"; then
+      # Temp file in the destination directory, then rename: the panel watches
+      # these files, so it must never observe a half-written record.
+      tmp=$(mktemp "$USAGE_DIR/.$agent.XXXXXX") || exit 1
+      chmod 600 "$tmp"
+      printf '%s\n' "$record" >"$tmp" && mv -f "$tmp" "$USAGE_DIR/$agent.json"
+    else
+      echo "omarchy-agent-usage-more: $agent collector failed" >&2
+      exit 1
+    fi
+  } &
+  pids+=($!)
+done
+
+for pid in "${pids[@]:-}"; do
+  wait "$pid" || status=1
+done
+
+exit "$status"

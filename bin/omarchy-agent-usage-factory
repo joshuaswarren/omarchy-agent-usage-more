@@ -1,0 +1,279 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Factory (Droid) usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Factory / Droid subscription limits.
+
+Sources, with a WorkOS access token:
+  GET https://app.factory.ai/api/billing/limits                    - % per window
+  GET https://app.factory.ai/api/organization/subscription/usage    - token ledger
+
+Credential path: the droid CLI stores a WorkOS refresh token in
+~/.factory/auth.v2.file, AES-256-GCM encrypted under ~/.factory/auth.v2.key.
+This collector imports that refresh token into its OWN store and rotates there,
+because WorkOS invalidates a refresh token once it is exchanged — writing the
+rotation back into droid's file would be editing another tool's credential, and
+not writing it anywhere would break the next refresh. When our stored token is
+rejected (droid refreshed in the meantime), we re-import from droid and retry.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "factory"
+AGENT_NAME = "Factory"
+AUTH_HELP = "Sign in with the droid CLI (`droid`) so ~/.factory holds a current session."
+LIMITS_URL = "https://app.factory.ai/api/billing/limits"
+TOKENS_URL = "https://app.factory.ai/api/organization/subscription/usage"
+WORKOS_URL = "https://api.workos.com/user_management/authenticate"
+# Factory's WorkOS application. Public client id, carried in its web bundle.
+WORKOS_CLIENT_ID = "client_01HNM792M5G5G1A2THWPXKFMXB"
+DROID_DIR = Path("~/.factory").expanduser()
+WINDOW_TITLES = {"fiveHour": "Session (5-hour)", "weekly": "Weekly (7-day)", "monthly": "Monthly"}
+# Which limit families to report. `standard` is the plan; `core` only matters
+# once a droidCore overage preference is active.
+FAMILY_TITLES = {"standard": "", "core": "Core"}
+
+
+def _state_path() -> Path:
+    state = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local/state"))
+    return state / "omarchy" / "agents" / "credentials" / "factory.json"
+
+
+def _read_state() -> dict:
+    try:
+        parsed = json.loads(_state_path().read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _write_state(state: dict) -> None:
+    path = _state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    # 0600 before any bytes land: this file holds a live refresh token.
+    handle = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w") as stream:
+        json.dump(state, stream)
+    tmp.replace(path)
+
+
+def _droid_refresh_token() -> str:
+    """Decrypt the droid CLI credential: iv:tag:ciphertext, all base64."""
+    try:
+        blob = (DROID_DIR / "auth.v2.file").read_text().strip()
+        key = base64.b64decode((DROID_DIR / "auth.v2.key").read_text().strip())
+    except (OSError, ValueError):
+        return ""
+    parts = blob.split(":")
+    if len(parts) != 3 or len(key) != 32:
+        return ""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        nonce, tag, payload = (base64.b64decode(part) for part in parts)
+        plaintext = AESGCM(key).decrypt(nonce, payload + tag, None)
+        parsed = json.loads(plaintext)
+    except Exception:  # noqa: BLE001 - any decrypt/parse failure means "no credential"
+        return ""
+    return str(parsed.get("refresh_token") or "").strip() if isinstance(parsed, dict) else ""
+
+
+def _jwt_expiry(token: str) -> float:
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(payload)).get("exp") or 0)
+    except Exception:  # noqa: BLE001 - an unreadable token is simply treated as expired
+        return 0.0
+
+
+def _exchange(refresh_token: str) -> dict | None:
+    """Trade a refresh token for an access token. None means it was rejected."""
+    body = json.dumps(
+        {
+            "client_id": WORKOS_CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+    ).encode()
+    request = urllib.request.Request(
+        WORKOS_URL,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=au.DEFAULT_TIMEOUT) as response:
+            parsed = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        if error.code in (400, 401, 403):
+            return None
+        raise au.CollectorError(f"WorkOS returned HTTP {error.code}") from error
+    except urllib.error.URLError as error:
+        raise au.CollectorError("Could not reach WorkOS") from error
+    if not isinstance(parsed, dict) or not parsed.get("access_token"):
+        return None
+    return parsed
+
+
+def access_token() -> str:
+    """A live access token, refreshing and re-importing as needed."""
+    state = _read_state()
+    cached = str(state.get("accessToken") or "")
+    if cached and _jwt_expiry(cached) > time.time() + 60:
+        return cached
+
+    candidates = [str(state.get("refreshToken") or ""), _droid_refresh_token()]
+    for refresh_token in [value for value in candidates if value]:
+        session = _exchange(refresh_token)
+        if session is None:
+            continue
+        _write_state(
+            {
+                "accessToken": session["access_token"],
+                "refreshToken": session.get("refresh_token") or refresh_token,
+            }
+        )
+        return session["access_token"]
+    return ""
+
+
+def _window_limits(payload: dict) -> list[dict]:
+    families = payload.get("limits")
+    if not isinstance(families, dict):
+        return []
+    limits = []
+    for family, prefix in FAMILY_TITLES.items():
+        windows = families.get(family)
+        if not isinstance(windows, dict):
+            continue
+        for window, title in WINDOW_TITLES.items():
+            entry = windows.get(window)
+            if not isinstance(entry, dict):
+                continue
+            used = entry.get("usedPercent")
+            if not isinstance(used, (int, float)):
+                continue
+            # A zeroed window with no end is a window Factory is not metering
+            # on this plan; only the active ones belong in the panel.
+            if used == 0 and not entry.get("windowEnd") and prefix:
+                continue
+            limits.append(
+                au.limit(
+                    f"{prefix} {title.lower()}" if prefix else title,
+                    au.percent_fraction(used),
+                    au.iso(entry.get("windowEnd")),
+                )
+            )
+    return limits
+
+
+def _token_limit(token: str) -> dict | None:
+    """The plan's token allowance, when the org endpoint is readable."""
+    try:
+        payload = au.get_json(
+            TOKENS_URL,
+            headers={"Authorization": f"Bearer {token}", "x-factory-client": "web-app"},
+            label="Factory",
+        )
+    except au.CollectorError:
+        return None
+    usage = (payload or {}).get("usage") if isinstance(payload, dict) else None
+    standard = usage.get("standard") if isinstance(usage, dict) else None
+    if not isinstance(standard, dict):
+        return None
+    allowance = standard.get("totalAllowance")
+    used = standard.get("orgTotalTokensUsed", standard.get("userTokens"))
+    if not isinstance(allowance, (int, float)) or allowance <= 0:
+        return None
+    return au.limit(
+        "Plan tokens",
+        au.fraction(used, allowance),
+        au.iso(usage.get("endDate")) if isinstance(usage.get("endDate"), str) else "",
+        used=used,
+        allowance=allowance,
+    )
+
+
+def scan() -> dict:
+    # Opt-in, unlike every other collector here. Factory's only machine-local
+    # credential is the droid CLI's WorkOS refresh token, and WorkOS
+    # invalidates a refresh token when it is exchanged: whichever process
+    # refreshes last owns the session, so polling this on a box where you also
+    # run `droid` will eventually force droid to sign in again.
+    if au.agent_config(AGENT_ID).get("enabled") is not True:
+        return au.record(
+            AGENT_ID,
+            AGENT_NAME,
+            status_text="Factory tracking is off",
+            auth_help='Enable with {"enabled": true} in ~/.config/omarchy/agents/factory.json '
+            "(this competes with the droid CLI for one refresh token).",
+        )
+
+    token = access_token()
+    if not token:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="Factory unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = au.get_json(
+        LIMITS_URL,
+        headers={"Authorization": f"Bearer {token}", "x-factory-client": "web-app"},
+        label="Factory",
+    )
+    if not isinstance(payload, dict):
+        raise au.CollectorError("Factory returned an unexpected limits payload")
+
+    limits = _window_limits(payload)
+    token_limit = _token_limit(token)
+    if token_limit:
+        limits.append(token_limit)
+    if not limits:
+        raise au.CollectorError("Factory reported no usage windows")
+
+    overage_cents = payload.get("extraUsageBalanceCents")
+    balance = None
+    if isinstance(overage_cents, (int, float)) and overage_cents > 0:
+        balance = {
+            "remaining": round(overage_cents / 100.0, 2),
+            "funded": round(overage_cents / 100.0, 2),
+            "spent": 0.0,
+            "currency": "USD",
+            "estimated": False,
+        }
+
+    return au.record(
+        AGENT_ID,
+        AGENT_NAME,
+        ready=True,
+        limits=limits,
+        tier_label="Droid",
+        balance=balance,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Factory usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

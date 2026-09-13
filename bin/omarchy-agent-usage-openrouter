@@ -1,0 +1,122 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the OpenRouter usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""OpenRouter credit balance and per-key spend limit.
+
+Sources, both with the key as a bearer token:
+  GET https://openrouter.ai/api/v1/key      - this key's spend cap and usage
+  GET https://openrouter.ai/api/v1/credits  - account credits purchased/spent
+OpenRouter is prepaid, so the record carries a balance ledger; the key's own
+cap becomes a limit window when one is set.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "openrouter"
+AGENT_NAME = "OpenRouter"
+AUTH_HELP = "Set OPENROUTER_API_KEY (openrouter.ai -> Keys)."
+KEY_URL = "https://openrouter.ai/api/v1/key"
+CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+RESET_TITLES = {
+    "daily": "Daily key spend",
+    "weekly": "Weekly key spend",
+    "monthly": "Monthly key spend",
+}
+
+
+def _money(value) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("OPENROUTER_API_KEY",),
+        codexbar_id="openrouter",
+        files=("~/.config/openrouter/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID,
+            AGENT_NAME,
+            status_text="OpenRouter unavailable",
+            auth_help=AUTH_HELP,
+        )
+
+    headers = {"Authorization": f"Bearer {key}"}
+    key_payload = au.get_json(KEY_URL, headers=headers, label="OpenRouter")
+    data = key_payload.get("data") if isinstance(key_payload, dict) else None
+    if not isinstance(data, dict):
+        raise au.CollectorError("OpenRouter returned an unexpected key payload")
+
+    limits = []
+    cap = data.get("limit")
+    if isinstance(cap, (int, float)) and cap > 0:
+        remaining = _money(data.get("limit_remaining"))
+        spent = max(0.0, float(cap) - remaining)
+        window = str(data.get("limit_reset") or "").lower()
+        limits.append(
+            au.limit(
+                RESET_TITLES.get(window, "Key spend"),
+                au.fraction(spent, cap),
+                used=round(spent, 4),
+                allowance=float(cap),
+            )
+        )
+
+    # The credits call is a separate permission on some keys; a balance is a
+    # bonus, not a reason to report the whole provider as unavailable.
+    balance = None
+    try:
+        credits_payload = au.get_json(CREDITS_URL, headers=headers, label="OpenRouter")
+        credits = (
+            credits_payload.get("data") if isinstance(credits_payload, dict) else None
+        )
+        if isinstance(credits, dict):
+            funded = _money(credits.get("total_credits"))
+            spent = _money(credits.get("total_usage"))
+            balance = {
+                "remaining": round(max(0.0, funded - spent), 4),
+                "funded": round(funded, 4),
+                "spent": round(spent, 4),
+                "currency": "USD",
+                "estimated": False,
+            }
+    except au.CollectorError:
+        balance = None
+
+    if not limits and balance is None:
+        raise au.CollectorError("OpenRouter reported neither a key limit nor credits")
+
+    return au.record(
+        AGENT_ID,
+        AGENT_NAME,
+        ready=True,
+        limits=limits,
+        tier_label="Free tier" if data.get("is_free_tier") else "Prepaid",
+        balance=balance,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the OpenRouter usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

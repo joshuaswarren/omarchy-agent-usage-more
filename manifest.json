@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.joshuaswarren.agent-usage-more",
+  "name": "Agent Usage More",
+  "version": "0.1.0",
+  "author": "joshuaswarren",
+  "license": "MIT",
+  "description": "ClinePass, Kimi Code, MiniMax, OpenRouter and Factory usage records for Omarchy's built-in agents panel and any renderer that reads the usage directory.",
+  "kinds": ["service"],
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "omarchy": {
+    "extends": "omarchy.agents"
+  }
+}

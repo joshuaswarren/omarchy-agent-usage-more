@@ -1,0 +1,132 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Kimi Code usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Kimi / Moonshot coding-plan quota.
+
+Source: GET https://api.kimi.com/coding/v1/usages with the platform API key as
+a bearer token. The payload carries the plan's weekly allowance under `usage`
+and each shorter rate window under `limits[]`, both as request counts, so the
+percentages here are used/limit rather than a reported percentage.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "kimi"
+AGENT_NAME = "Kimi Code"
+AUTH_HELP = "Set KIMI_API_KEY (platform.kimi.ai -> API keys)."
+USAGE_URL = "https://api.kimi.com/coding/v1/usages"
+
+# Kimi reports membership levels, not marketing plan names.
+TIER_LABELS = {
+    "LEVEL_BASIC": "Basic",
+    "LEVEL_INTERMEDIATE": "Standard",
+    "LEVEL_ADVANCED": "Pro",
+    "LEVEL_PREMIUM": "Premium",
+}
+
+
+def _int(value) -> int:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _window_title(window) -> str:
+    """`{duration: 300, timeUnit: TIME_UNIT_MINUTE}` -> "Session (5-hour)"."""
+    if not isinstance(window, dict):
+        return "Rate window"
+    duration = _int(window.get("duration"))
+    unit = str(window.get("timeUnit") or "")
+    minutes = {
+        "TIME_UNIT_SECOND": duration / 60,
+        "TIME_UNIT_MINUTE": duration,
+        "TIME_UNIT_HOUR": duration * 60,
+        "TIME_UNIT_DAY": duration * 1440,
+    }.get(unit, duration)
+    if minutes <= 0:
+        return "Rate window"
+    if minutes % 1440 == 0:
+        days = int(minutes // 1440)
+        return "Weekly (7-day)" if days == 7 else f"{days}-day"
+    if minutes % 60 == 0:
+        hours = int(minutes // 60)
+        return f"Session ({hours}-hour)"
+    return f"{int(minutes)}-minute"
+
+
+def _limit_from_detail(title: str, detail) -> dict | None:
+    """Detail carries limit/remaining; used is the difference."""
+    if not isinstance(detail, dict):
+        return None
+    allowance = _int(detail.get("limit"))
+    if allowance <= 0:
+        return None
+    used = _int(detail.get("used")) or max(0, allowance - _int(detail.get("remaining")))
+    return au.limit(
+        title,
+        au.fraction(used, allowance),
+        au.iso(detail.get("resetTime")),
+        used=used,
+        allowance=allowance,
+    )
+
+
+def scan() -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("KIMI_API_KEY", "MOONSHOT_API_KEY"),
+        codexbar_id="kimi",
+        files=("~/.config/kimi/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="Kimi unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = au.get_json(
+        USAGE_URL, headers={"Authorization": f"Bearer {key}"}, label="Kimi"
+    )
+    if not isinstance(payload, dict):
+        raise au.CollectorError("Kimi returned an unexpected usage payload")
+
+    limits = []
+    for entry in payload.get("limits") or []:
+        if not isinstance(entry, dict):
+            continue
+        parsed = _limit_from_detail(_window_title(entry.get("window")), entry.get("detail"))
+        if parsed:
+            limits.append(parsed)
+    weekly = _limit_from_detail("Weekly (7-day)", payload.get("usage"))
+    if weekly and not any(entry["title"] == weekly["title"] for entry in limits):
+        limits.append(weekly)
+    if not limits:
+        raise au.CollectorError("Kimi returned no usage limits")
+
+    membership = (payload.get("user") or {}).get("membership") or {}
+    tier = TIER_LABELS.get(str(membership.get("level") or ""), "")
+
+    return au.record(
+        AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label=tier
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Kimi usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, scan, AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,145 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the MiniMax coding-plan usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""MiniMax coding-plan quota (rolling interval + weekly).
+
+Source: GET https://platform.minimax.io/v1/api/openplatform/coding_plan/remains
+with the platform API key as a bearer token. MiniMax returns one row per model
+family; the `general` row is the text/coding plan, and the media rows (video,
+audio, image) are separate resource packs, reported only when they have an
+allowance so an unused pack does not clutter the panel.
+
+Note the API reports *remaining* percentages; the panel wants used.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+
+AGENT_ID = "minimax"
+AGENT_NAME = "MiniMax"
+AUTH_HELP = "Set MINIMAX_API_KEY (platform.minimax.io -> API keys)."
+USAGE_URL = "https://platform.minimax.io/v1/api/openplatform/coding_plan/remains"
+REGION_URLS = {
+    "global": USAGE_URL,
+    "cn": "https://platform.minimaxi.com/v1/api/openplatform/coding_plan/remains",
+}
+MODEL_TITLES = {
+    "general": "",  # the coding plan itself: titles stay unprefixed
+    "video": "Video",
+    "audio": "Audio",
+    "image": "Image",
+}
+
+
+def _count(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _used_fraction(row: dict, remaining_key: str, used_key: str, total_key: str) -> float:
+    """Prefer the reported remaining percentage; fall back to the counts."""
+    remaining = row.get(remaining_key)
+    if isinstance(remaining, (int, float)):
+        return au.percent_fraction(100.0 - float(remaining))
+    return au.fraction(row.get(used_key), row.get(total_key))
+
+
+def _model_limits(row: dict) -> list[dict]:
+    model = str(row.get("model_name") or "").strip() or "general"
+    prefix = MODEL_TITLES.get(model, model.capitalize())
+    interval_total = _count(row.get("current_interval_total_count"))
+    weekly_total = _count(row.get("current_weekly_total_count"))
+    # A pack with no allowance in either window is not provisioned on this
+    # plan; reporting it would draw an empty meter with no meaning.
+    if model != "general" and interval_total <= 0 and weekly_total <= 0:
+        return []
+
+    def title(text: str) -> str:
+        return f"{prefix} {text.lower()}" if prefix else text
+
+    return [
+        au.limit(
+            title("Session"),
+            _used_fraction(
+                row,
+                "current_interval_remaining_percent",
+                "current_interval_usage_count",
+                "current_interval_total_count",
+            ),
+            au.epoch_ms_iso(row.get("end_time")),
+            used=_count(row.get("current_interval_usage_count")) or None,
+            allowance=interval_total or None,
+        ),
+        au.limit(
+            title("Weekly"),
+            _used_fraction(
+                row,
+                "current_weekly_remaining_percent",
+                "current_weekly_usage_count",
+                "current_weekly_total_count",
+            ),
+            au.epoch_ms_iso(row.get("weekly_end_time")),
+            used=_count(row.get("current_weekly_usage_count")) or None,
+            allowance=weekly_total or None,
+        ),
+    ]
+
+
+def scan(region: str) -> dict:
+    key = au.resolve_key(
+        AGENT_ID,
+        env_vars=("MINIMAX_API_KEY",),
+        codexbar_id="minimax",
+        files=("~/.config/minimax/api-key",),
+    )
+    if not key:
+        return au.record(
+            AGENT_ID, AGENT_NAME, status_text="MiniMax unavailable", auth_help=AUTH_HELP
+        )
+
+    payload = au.get_json(
+        REGION_URLS.get(region, USAGE_URL),
+        headers={"Authorization": f"Bearer {key}", "MM-API-Source": "omarchy"},
+        label="MiniMax",
+    )
+    if not isinstance(payload, dict):
+        raise au.CollectorError("MiniMax returned an unexpected usage payload")
+    status = (payload.get("base_resp") or {}).get("status_code")
+    if status not in (0, None):
+        message = (payload.get("base_resp") or {}).get("status_msg") or status
+        raise au.CollectorError(f"MiniMax API error: {message}")
+    rows = payload.get("model_remains")
+    if not isinstance(rows, list) or not rows:
+        raise au.CollectorError("MiniMax returned no coding-plan quota")
+
+    limits: list[dict] = []
+    for row in rows:
+        if isinstance(row, dict):
+            limits.extend(_model_limits(row))
+    if not limits:
+        raise au.CollectorError("MiniMax returned no usable quota windows")
+
+    return au.record(AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label="Coding plan")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the MiniMax usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.add_argument("--region", choices=sorted(REGION_URLS), default="global")
+    args = parser.parse_args()
+    return au.run(AGENT_ID, AGENT_NAME, lambda: scan(args.region), AUTH_HELP)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

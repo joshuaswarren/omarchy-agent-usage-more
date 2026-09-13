@@ -1,0 +1,8 @@
+[Unit]
+Description=Collect extra AI subscription usage records for the Omarchy agents panel
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/omarchy/plugins/io.github.joshuaswarren.agent-usage-more/bin/update-all
+TimeoutStartSec=180
