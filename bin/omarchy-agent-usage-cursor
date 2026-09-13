@@ -1,0 +1,44 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Cursor usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Cursor plan usage, read from the omp auth broker.
+
+Cursor publishes usage only to a logged-in web session: every other route
+wants the dashboard cookie out of a browser profile, which on Linux means a
+keyring prompt. The broker holds a Cursor credential already, so its
+`GET /v1/usage` report is the one source that needs no browser here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "cursor"
+AGENT_NAME = "Cursor"
+BROKER_PROVIDER = "cursor"
+AUTH_HELP = "Add a Cursor credential with `omp auth-broker login cursor`."
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Cursor usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(
+        AGENT_ID,
+        AGENT_NAME,
+        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Plan"),
+        AUTH_HELP,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

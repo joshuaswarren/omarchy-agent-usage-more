@@ -2,7 +2,8 @@
 
 Usage collectors for AI subscriptions that Omarchy does not ship and the
 existing collector packs do not cover: **ClinePass, Kimi Code, MiniMax,
-OpenRouter** and (opt-in) **Factory**.
+OpenRouter**, (opt-in) **Factory**, plus **Claude Max, Cursor and OpenCode Go**
+read from an [omp](https://github.com/badlogic/pi-mono) auth broker.
 
 Records land in `~/.local/state/omarchy/agents/usage/`, which is the directory
 Omarchy's built-in `omarchy.agents` panel watches — and which any other
@@ -19,6 +20,8 @@ bin/update-all  (timer, 5 min) ────writes──────────�
 
 ## Providers
 
+Direct, one API key each:
+
 | Collector | Source | Windows reported | Credential |
 |---|---|---|---|
 | `clinepass` | `api.cline.bot/api/v1/users/me/plan/usage-limits` | 5-hour, weekly, monthly | API key |
@@ -27,9 +30,40 @@ bin/update-all  (timer, 5 min) ────writes──────────�
 | `openrouter` | `openrouter.ai/api/v1/key` + `/credits` | key spend cap, prepaid balance | API key |
 | `factory` | `app.factory.ai/api/billing/limits` + subscription usage | 5-hour, weekly, monthly, plan tokens | droid CLI session (**opt-in**, see below) |
 
+Broker-backed, no local credential at all:
+
+| Collector | Broker provider | Windows reported |
+|---|---|---|
+| `claude-max` | `anthropic` | 5-hour, 7-day (per model family) |
+| `cursor` | `cursor` | monthly request and spend caps |
+| `opencode-go` | `opencode-go` | 5-hour, weekly, monthly |
+
 Every collector prints a record even when it fails, carrying
 `usageStatusText` and `authHelpText` so the panel can explain itself instead
 of showing an empty tab.
+
+## Broker-backed collectors
+
+`omp auth-broker` already holds the OAuth credentials omp uses and publishes
+an aggregate usage report on `GET /v1/usage`, refreshed server-side. That is
+the only practical source for providers whose quota otherwise lives behind a
+logged-in browser session — and it works on a machine that has never signed
+into the provider's CLI.
+
+`lib/broker.py` resolves the endpoint from `OMP_AUTH_BROKER_URL` /
+`OMP_AUTH_BROKER_TOKEN`, then `auth.broker.url` / `auth.broker.token` in
+`~/.omp/agent/config.yml` (including omp's `!command` indirection), then
+`omp auth-broker status --json` and `omp auth-broker token`. Nothing is
+written back.
+
+When a provider holds several accounts, same-named windows merge to the
+account with the **most headroom** — that is the one the broker rotates to, so
+an exhausted sibling must not make the bar read "out of quota".
+
+`claude-max` is a separate agent id rather than a second writer for
+`claude.json`: Omarchy's stock `claude` collector owns that file and reports
+"Waiting for auth" where Claude Code has no local login, and two writers would
+flap between the two answers.
 
 ## Install
 
@@ -108,6 +142,25 @@ python3 tests/test_collectors.py
 
 Fixture-driven, no network: captured provider payloads in, records out, with
 the percent math, window titles and reset timestamps pinned.
+
+## Not covered, and why
+
+Findings from probing each provider on Linux (2026-09-13), so nobody repeats
+the work:
+
+| Provider | Blocker |
+|---|---|
+| Gemini / Google AI Pro | Google retired Code Assist for individuals on the CLI client: `loadCodeAssist` answers `UNSUPPORTED_CLIENT … migrate to the Antigravity suite`, and `retrieveUserQuota` returns 403 "no valid license". Only the Antigravity IDE reports quota, and only while it is running. |
+| Alibaba Model Studio coding plan | Quota lives behind the console's `/data/api.json` with a session cookie and XSRF token; a DashScope API key gets a 302 to the login page. |
+| Ollama Cloud | Usage is rendered on `ollama.com/settings`; the API key authenticates inference only, and the broker reports the credential with zero limits. |
+| Warp | `app.warp.dev/graphql/v2?op=GetRequestLimitInfo` needs a Warp API key; `~/.warp/settings.toml` holds none. |
+| Kilo, Amp | Their CLIs store nothing until you sign in (`~/.config/kilo/kilo.jsonc` is bare, `~/.config/amp` holds no token). |
+| Devin | Usage comes from a logged-in `app.devin.ai` session plus an internal org id. |
+
+Where a provider is listed in `omp auth-broker list` but the broker returns no
+usage report, the broker simply holds no credential for it — `omp auth-broker
+login <provider>` is the fix, and then the collector pattern in `lib/broker.py`
+covers it in a few lines.
 
 ## Credit
 

@@ -1,0 +1,48 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Claude subscription usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Claude Pro/Max limits, read from the omp auth broker.
+
+Omarchy's stock `claude` collector needs a signed-in Claude Code CLI on this
+machine. On a fleet where Claude authenticates through `omp auth-broker`, no
+host holds those credentials locally — the broker does, and it already
+publishes refreshed 5-hour / 7-day windows on `GET /v1/usage`.
+
+This is a separate agent id (`claude-max`) rather than a second writer for
+`claude.json`: two collectors writing one record would flap between the
+broker's real numbers and the stock collector's "Waiting for auth".
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "claude-max"
+AGENT_NAME = "Claude Max"
+BROKER_PROVIDER = "anthropic"
+AUTH_HELP = "Add an Anthropic credential with `omp auth-broker login anthropic`."
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Claude usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(
+        AGENT_ID,
+        AGENT_NAME,
+        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Max"),
+        AUTH_HELP,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

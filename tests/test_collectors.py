@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 
 import agentusage as au  # noqa: E402
+import broker  # noqa: E402
 
 FIXTURES = json.loads((Path(__file__).resolve().parent / "fixtures.json").read_text())
 FAILURES: list[str] = []
@@ -132,6 +133,30 @@ def test_factory_windows() -> None:
         limits[2].get("resetsAt"),
         "2026-09-16T15:35:49.655000Z",
     )
+
+
+def test_broker_multi_account_merge() -> None:
+    reports = FIXTURES["broker_reports"]
+    limits = broker.limits_for(reports, "anthropic")
+    titles_out = [entry["title"] for entry in limits]
+    check("broker titles", titles_out, ["Claude 5 Hour", "Claude 7 Day"])
+    # Two anthropic credentials: 63% and 100% on the weekly window. The
+    # account with headroom is the one the broker rotates to, so the merged
+    # record must not report the exhausted sibling.
+    check("broker merge keeps headroom", [round(e["percent"] * 100) for e in limits], [15, 63])
+    check("broker reset", limits[0].get("resetsAt"), "2026-09-13T16:00:00Z")
+    check("broker accounts", broker.accounts_for(reports, "anthropic"), 2)
+
+
+def test_broker_window_titles_and_units() -> None:
+    reports = FIXTURES["broker_reports"]
+    cursor = broker.limits_for(reports, "cursor")
+    # A label that already names its window must not be suffixed twice, and a
+    # limit with no usable amount is dropped rather than drawn as 0%.
+    check("cursor titles", [entry["title"] for entry in cursor], ["Other Models (Monthly)"])
+    check("cursor percent", [round(e["percent"] * 100) for e in cursor], [100])
+    check("cursor allowance", cursor[0]["allowance"], 400)
+    check("missing provider", broker.limits_for(reports, "nope"), [])
 
 
 def test_record_defaults() -> None:

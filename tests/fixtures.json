@@ -89,5 +89,55 @@
       }
     },
     "extraUsageBalanceCents": 0
-  }
+  },
+  "broker_reports": [
+    {
+      "provider": "anthropic",
+      "fetchedAt": 1789313439876,
+      "limits": [
+        {
+          "label": "Claude 5 Hour",
+          "window": { "id": "5h", "label": "5 Hour", "resetsAt": 1789315200000 },
+          "amount": { "unit": "percent", "limit": 100, "used": 15, "usedFraction": 0.15 }
+        },
+        {
+          "label": "Claude 7 Day",
+          "window": { "id": "7d", "label": "7 Day", "resetsAt": 1789401600000 },
+          "amount": { "unit": "percent", "limit": 100, "used": 63, "usedFraction": 0.63 }
+        }
+      ]
+    },
+    {
+      "provider": "anthropic",
+      "fetchedAt": 1789313439900,
+      "limits": [
+        {
+          "label": "Claude 5 Hour",
+          "window": { "id": "5h", "label": "5 Hour", "resetsAt": 1789315200000 },
+          "amount": { "unit": "percent", "limit": 100, "used": 40, "usedFraction": 0.4 }
+        },
+        {
+          "label": "Claude 7 Day",
+          "window": { "id": "7d", "label": "7 Day", "resetsAt": 1789585200291 },
+          "amount": { "unit": "percent", "limit": 100, "used": 100, "usedFraction": 1 }
+        }
+      ]
+    },
+    {
+      "provider": "cursor",
+      "fetchedAt": 1789313441173,
+      "limits": [
+        {
+          "label": "gpt-4 requests",
+          "window": { "id": "monthly", "label": "Monthly", "resetsAt": 1789582885000 },
+          "amount": { "unit": "requests" }
+        },
+        {
+          "label": "Other Models",
+          "window": { "id": "monthly", "label": "Monthly", "resetsAt": 1789582885000 },
+          "amount": { "unit": "usd", "limit": 400, "used": 400, "remainingFraction": 0 }
+        }
+      ]
+    }
+  ]
 }
