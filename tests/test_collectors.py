@@ -159,6 +159,13 @@ def test_broker_window_titles_and_units() -> None:
     check("missing provider", broker.limits_for(reports, "nope"), [])
 
 
+def test_opencode_plan_wiring() -> None:
+    module = load("opencode")
+    check("opencode owns the opencode id", module.AGENT_ID, "opencode")
+    check("opencode row name", module.AGENT_NAME, "OpenCode")
+    check("opencode reads the go credential", module.BROKER_PROVIDER, "opencode-go")
+
+
 def test_record_defaults() -> None:
     record = au.record("demo", "Demo")
     check("record schema", record["schemaVersion"], 1)

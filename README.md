@@ -40,7 +40,7 @@ Broker-backed, no local credential at all:
 | `claude-max` | `anthropic` | 5-hour and 7-day windows, **one set per account** |
 | `google-ai-pro` | `google-antigravity` | weekly and 5-hour, per model family |
 | `cursor` | `cursor` | monthly request and spend caps |
-| `opencode-go` | `opencode-go` | 5-hour, weekly, monthly |
+| `opencode` | `opencode-go` | 5-hour, weekly, monthly |
 | `alibaba` | `alibaba-coding-plan`, `alibaba-token-plan` | whichever plan the credential covers |
 | `devin` | `devin` | plan windows |
 | `ollama-cloud` | `ollama-cloud` | plan windows when Ollama publishes any |
@@ -49,6 +49,17 @@ Every collector prints a record even when it fails, carrying
 `usageStatusText` and `authHelpText` so the panel can explain itself instead
 of showing an empty tab.
 
+
+## One row per subscription
+
+`opencode` owns its agent id with the paid plan's windows. The local
+token-stats adapter for the same id (rohaquinlop/agent-collectors) would
+overwrite that record every 15 minutes, so `adapters-overrides/opencode/`
+retires it: copy that directory to
+`~/.config/omarchy/agent-collectors/adapters/` (same id wins over builtins;
+its detect path never exists, so the engine skips it without writing).
+`install.sh` does this automatically; plugin installs need the one-time copy
+because Omarchy runs no installer for plugins.
 ## Broker-backed collectors
 
 `omp auth-broker` already holds the OAuth credentials omp uses and publishes

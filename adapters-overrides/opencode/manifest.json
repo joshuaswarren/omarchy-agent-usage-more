@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode",
+  "name": "OpenCode (retired in favour of plan limits)",
+  "description": "User-dir override (same id wins over the builtin): retires the local token-stats adapter. Plan windows are reported by bin/omarchy-agent-usage-opencode instead. The detect path never exists, so the engine skips this adapter without writing opencode.json.",
+  "detect": [{ "path": "~/.config/omarchy/agent-collectors/.plan-limits-own-opencode" }],
+  "sources": [
+    {
+      "format": "sqlite-query",
+      "database": "~/.config/omarchy/agent-collectors/.plan-limits-own-opencode",
+      "query": "SELECT 1"
+    }
+  ]
+}

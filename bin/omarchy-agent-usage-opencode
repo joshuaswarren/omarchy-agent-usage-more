@@ -1,12 +1,13 @@
 #!/usr/bin/python3
-# omarchy:summary=Print the OpenCode Go subscription usage record from the omp auth broker
+# omarchy:summary=Print the OpenCode plan usage record from the omp auth broker
 # omarchy:args=[--force] [--limits-only]
 # omarchy:hidden=true
-"""OpenCode Go / Zen subscription windows, read from the omp auth broker.
+"""OpenCode plan windows (the paid Go / Zen subscription), from the omp auth broker.
 
-Distinct from a local OpenCode token-stats collector: this is the paid plan's
-5-hour / weekly / monthly allowance, which only the account behind the
-credential can report.
+This owns the `opencode` agent id: the plan allowance is what belongs on the
+bar, not local token tallies. Pair it with the override in
+`adapters-overrides/opencode/` so the local-stats adapter in
+rohaquinlop/agent-collectors stops writing this same record.
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import agentusage as au  # noqa: E402
 import broker  # noqa: E402
 
-AGENT_ID = "opencode-go"
-AGENT_NAME = "OpenCode Go"
+AGENT_ID = "opencode"
+AGENT_NAME = "OpenCode"
 BROKER_PROVIDER = "opencode-go"
 AUTH_HELP = "Add an OpenCode Go credential with `omp auth-broker login opencode-go`."
 
