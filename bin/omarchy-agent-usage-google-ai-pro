@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Google AI Pro (Antigravity) usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Google AI Pro quota, via the omp auth broker.
+
+Google retired Code Assist for individuals on the Gemini CLI client, so the
+Gemini collector can never report this subscription. The same Google AI Pro
+plan surfaces through Antigravity, and the broker's `google-antigravity`
+credential already publishes refreshed weekly and 5-hour windows on
+`GET /v1/usage`.
+
+This is a separate agent id (`google-ai-pro`) rather than a second writer for
+`antigravity.json`: the extras collector owns that file and reports the IDE as
+not running when it is closed, which would flap against the broker's numbers.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "google-ai-pro"
+AGENT_NAME = "Google AI Pro"
+BROKER_PROVIDER = "google-antigravity"
+AUTH_HELP = "Add a credential with `omp auth-broker login google-antigravity`."
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Google AI Pro usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(
+        AGENT_ID,
+        AGENT_NAME,
+        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Pro"),
+        AUTH_HELP,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

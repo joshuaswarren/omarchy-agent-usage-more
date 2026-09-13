@@ -38,6 +38,7 @@ Broker-backed, no local credential at all:
 | Collector | Broker provider | Reports |
 |---|---|---|
 | `claude-max` | `anthropic` | 5-hour and 7-day windows, **one set per account** |
+| `google-ai-pro` | `google-antigravity` | weekly and 5-hour, per model family |
 | `cursor` | `cursor` | monthly request and spend caps |
 | `opencode-go` | `opencode-go` | 5-hour, weekly, monthly |
 | `alibaba` | `alibaba-coding-plan`, `alibaba-token-plan` | whichever plan the credential covers |
