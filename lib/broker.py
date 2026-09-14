@@ -23,6 +23,7 @@ from typing import Any
 import agentusage as au
 
 USAGE_PATH = "/v1/usage"
+SNAPSHOT_PATH = "/v1/snapshot"
 CLI_TIMEOUT = 20
 
 
@@ -114,19 +115,19 @@ def endpoint() -> tuple[str, str]:
     return url.rstrip("/"), token
 
 
-def fetch_reports() -> list[dict[str, Any]]:
+def _get(path: str) -> Any:
     url, token = endpoint()
     if not url or not token:
         raise au.CollectorError(
             "No omp auth-broker configured (set OMP_AUTH_BROKER_URL/TOKEN or auth.broker in ~/.omp/agent/config.yml)"
         )
     request = urllib.request.Request(
-        url + USAGE_PATH,
+        url + path,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=au.DEFAULT_TIMEOUT) as response:
-            payload = json.loads(response.read())
+            return json.loads(response.read())
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
             raise au.CollectorError("The auth broker rejected its bearer token") from error
@@ -135,8 +136,39 @@ def fetch_reports() -> list[dict[str, Any]]:
         raise au.CollectorError(f"Could not reach the auth broker at {url}") from error
     except json.JSONDecodeError as error:
         raise au.CollectorError("The auth broker returned invalid JSON") from error
+
+
+def fetch_reports() -> list[dict[str, Any]]:
+    payload = _get(USAGE_PATH)
     reports = payload.get("reports") if isinstance(payload, dict) else None
     return [report for report in (reports or []) if isinstance(report, dict)]
+
+
+def stored_credentials(provider: str) -> int:
+    """How many credentials the broker holds for a provider.
+
+    A provider can have a credential and still produce no usage report — the
+    broker only publishes what a provider's usage probe can actually fetch.
+    Counting reports alone would tell the user to log in again when the
+    credential is fine and the provider simply exposes no quota API, so the
+    snapshot is the authority for "is it connected".
+
+    Only provider ids are read here; the snapshot's token material is ignored.
+    """
+    try:
+        payload = _get(SNAPSHOT_PATH)
+    except au.CollectorError:
+        return 0
+    rows = payload.get("credentials") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return 0
+    return sum(
+        1
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("provider") == provider
+        and not row.get("disabled")
+    )
 
 
 def _fraction(amount: dict[str, Any]) -> float | None:
@@ -253,6 +285,25 @@ def limits_per_account(
     return out
 
 
+def _no_usage_error(broker_provider: str, reports: list[dict[str, Any]]) -> au.CollectorError:
+    """Explain an empty result without guessing that the login is missing."""
+    if accounts_for(reports, broker_provider) > 0:
+        return au.CollectorError(
+            f"The auth broker reported no {broker_provider} usage windows"
+        )
+    if stored_credentials(broker_provider) > 0:
+        # Connected, but the provider's quota is not machine-readable: the
+        # broker publishes only what its usage probe can fetch.
+        return au.CollectorError(
+            f"The auth broker holds a {broker_provider} credential but publishes no usage "
+            f"for it — this provider exposes no quota API, so there is nothing to read"
+        )
+    return au.CollectorError(
+        f"The auth broker holds no {broker_provider} credential "
+        f"(add one with `omp auth-broker login {broker_provider}`)"
+    )
+
+
 def scan_per_account(
     agent_id: str, name: str, broker_provider: str, tier_label: str = ""
 ) -> dict[str, Any]:
@@ -260,12 +311,7 @@ def scan_per_account(
     reports = fetch_reports()
     limits = limits_per_account(reports, broker_provider)
     if not limits:
-        if accounts_for(reports, broker_provider) == 0:
-            raise au.CollectorError(
-                f"The auth broker holds no {broker_provider} credential "
-                f"(add one with `omp auth-broker login {broker_provider}`)"
-            )
-        raise au.CollectorError(f"The auth broker reported no {broker_provider} usage windows")
+        raise _no_usage_error(broker_provider, reports)
     accounts = accounts_for(reports, broker_provider)
     tier = tier_label
     if accounts > 1:
@@ -279,12 +325,7 @@ def scan_provider(
     reports = fetch_reports()
     limits = limits_for(reports, broker_provider)
     if not limits:
-        if accounts_for(reports, broker_provider) == 0:
-            raise au.CollectorError(
-                f"The auth broker holds no {broker_provider} credential "
-                f"(add one with `omp auth-broker login {broker_provider}`)"
-            )
-        raise au.CollectorError(f"The auth broker reported no {broker_provider} usage windows")
+        raise _no_usage_error(broker_provider, reports)
     accounts = accounts_for(reports, broker_provider)
     tier = tier_label
     if accounts > 1:
