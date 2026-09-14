@@ -40,19 +40,24 @@ def scan() -> dict:
         if limits:
             tier = "Coding plan" if provider.endswith("coding-plan") else "Token plan"
             return au.record(AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label=tier)
-    # Distinguish "not connected" from "connected but the console never
-    # exposes quota to an API key" — otherwise the panel tells you to log in
-    # to an account that is already wired up.
+    # Distinguish "not connected" from "connected but no usage is readable" —
+    # otherwise the panel tells you to log in to an account already wired up.
+    # Measured 2026-09-13: the console quota endpoint
+    # (/data/api.json?action=…queryCodingPlanInstanceInfoV2) answers
+    # {"code":"ConsoleNeedLogin"} when called with the plan API key in the
+    # Authorization, x-api-key and X-DashScope-API-Key headers, so an API key
+    # alone cannot read it.
     connected = [p for p in BROKER_PROVIDERS if broker.stored_credentials(p) > 0]
     if connected:
         return au.record(
             AGENT_ID,
             AGENT_NAME,
             tier_label="Coding plan" if connected[0].endswith("coding-plan") else "Token plan",
-            status_text="Connected, but Alibaba publishes no quota",
+            status_text="Connected, but no usage is readable",
             auth_help=(
-                f"The broker holds a {connected[0]} API key; Model Studio reports plan "
-                "quota only to a signed-in console session, so no usage is readable here."
+                f"The broker holds a {connected[0]} API key and publishes no usage for it. "
+                "The console quota endpoint answers ConsoleNeedLogin to an API key; the only "
+                "non-browser route is the Bailian CLI (`bl usage token-plan --output json`)."
             ),
         )
     raise au.CollectorError(AUTH_HELP)

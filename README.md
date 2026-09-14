@@ -162,23 +162,22 @@ Fixture-driven, no network: captured provider payloads in, records out, with
 the percent math, window titles and reset timestamps pinned.
 
 ## Not covered, and why
-
 Findings from probing each provider on Linux (2026-09-13), so nobody repeats
 the work:
 
 | Provider | Blocker |
 |---|---|
-| Gemini / Google AI Pro | Google retired Code Assist for individuals on the CLI client: `loadCodeAssist` answers `UNSUPPORTED_CLIENT … migrate to the Antigravity suite`, and `retrieveUserQuota` returns 403 "no valid license". Only the Antigravity IDE reports quota, and only while it is running. |
-| Alibaba Model Studio coding plan | Quota lives behind the console's `/data/api.json` with a session cookie and XSRF token; a DashScope API key gets a 302 to the login page. |
-| Ollama Cloud | Usage is rendered on `ollama.com/settings`; the API key authenticates inference only, and the broker reports the credential with zero limits. |
-| Warp | `app.warp.dev/graphql/v2?op=GetRequestLimitInfo` needs a Warp API key; `~/.warp/settings.toml` holds none. |
-| Kilo, Amp | Their CLIs store nothing until you sign in (`~/.config/kilo/kilo.jsonc` is bare, `~/.config/amp` holds no token). |
-| Devin | Usage comes from a logged-in `app.devin.ai` session plus an internal org id. |
+| Gemini / Google AI Pro | Google retired Code Assist for individuals on the CLI client: `loadCodeAssist` answers `UNSUPPORTED_CLIENT … migrate to the Antigravity suite`, and `retrieveUserQuota` returns 403 "no valid license". The same plan is readable through the broker's Antigravity credential, which is what `google-ai-pro` reports. |
+| Alibaba Model Studio coding plan | Connected but silent. The console quota endpoint (`/data/api.json?action=…queryCodingPlanInstanceInfoV2`) answers `{"code":"ConsoleNeedLogin"}` when called with the plan API key in the `Authorization`, `x-api-key` and `X-DashScope-API-Key` headers, and the broker ships no usage probe for the provider. The only non-browser route is the Bailian CLI: `bl usage token-plan --output json`. |
+| Ollama Cloud | The broker holds the credential and reports zero limits; `ollama.com/api/tags` authenticates inference and lists models but carries no quota. Usage is rendered on `ollama.com/settings`. |
+| Kilo, Amp | Their CLIs store nothing until you sign in (`~/.config/kilo/kilo.jsonc` is bare, `~/.config/amp` holds no token), and CodexBar keeps its copies in the OS keychain. |
 
-Where a provider is listed in `omp auth-broker list` but the broker returns no
-usage report, the broker simply holds no credential for it — `omp auth-broker
-login <provider>` is the fix, and then the collector pattern in `lib/broker.py`
-covers it in a few lines.
+A provider can be connected and still report nothing: the broker publishes
+only what its per-provider usage probe can fetch. `lib/broker.py`
+distinguishes the three cases — no credential (`omp auth-broker login
+<provider>` is the fix), a credential with an empty usage window, and a
+credential the broker has no probe for — so the panel never tells you to sign
+in to an account that is already wired up.
 
 ## Credit
 
