@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -171,6 +173,73 @@ def stored_credentials(provider: str) -> int:
     )
 
 
+def reports_from_history(provider: str, max_age_hours: int = 24) -> list[dict[str, Any]]:
+    """Rebuild reports for a provider from the broker's persisted history.
+
+    A provider's live usage probe can fail transiently — Codex has been
+    observed dropping out of `/v1/usage` entirely for minutes at a time —
+    while `/v1/usage/history` still holds the last successful read. Falling
+    back to it keeps a real percentage on the bar instead of blanking the row,
+    and entries older than the cutoff are ignored so nothing goes stale
+    silently.
+
+    History rows are flat (one per limit per account); they are regrouped into
+    the report shape the rest of this module consumes.
+    """
+    try:
+        payload = _get(f"{USAGE_PATH}/history?provider={urllib.parse.quote(provider)}")
+    except au.CollectorError:
+        return []
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return []
+
+    cutoff_ms = (time.time() - max_age_hours * 3600) * 1000
+    # Keep the newest row per (account, limit id): history is append-only.
+    newest: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("provider") != provider:
+            continue
+        recorded = entry.get("recordedAt")
+        if not isinstance(recorded, (int, float)) or recorded < cutoff_ms:
+            continue
+        key = (str(entry.get("accountKey") or ""), str(entry.get("limitId") or entry.get("label") or ""))
+        current = newest.get(key)
+        if current is None or recorded > current["recordedAt"]:
+            newest[key] = entry
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for (account_key, _), entry in newest.items():
+        report = grouped.setdefault(
+            account_key,
+            {
+                "provider": provider,
+                "fetchedAt": entry.get("recordedAt"),
+                "metadata": {
+                    "email": entry.get("email"),
+                    "accountId": entry.get("accountId"),
+                },
+                "limits": [],
+                "fromHistory": True,
+            },
+        )
+        report["limits"].append(
+            {
+                "label": entry.get("label"),
+                "window": {
+                    "label": entry.get("windowLabel"),
+                    "resetsAt": entry.get("resetsAt"),
+                },
+                "amount": {
+                    "usedFraction": entry.get("usedFraction"),
+                    "used": entry.get("used"),
+                    "limit": entry.get("limit"),
+                },
+            }
+        )
+    return list(grouped.values())
+
+
 def _fraction(amount: dict[str, Any]) -> float | None:
     """Broker amounts carry usedFraction; fall back to used/limit."""
     value = amount.get("usedFraction")
@@ -304,30 +373,50 @@ def _no_usage_error(broker_provider: str, reports: list[dict[str, Any]]) -> au.C
     )
 
 
-def scan_per_account(
-    agent_id: str, name: str, broker_provider: str, tier_label: str = ""
+def _scan(
+    agent_id: str,
+    name: str,
+    broker_provider: str,
+    tier_label: str,
+    extract,
 ) -> dict[str, Any]:
-    """Broker-backed scan that keeps every account's windows separate."""
+    """Fetch, extract limits, and fall back to history when live is empty."""
     reports = fetch_reports()
-    limits = limits_per_account(reports, broker_provider)
+    limits = extract(reports, broker_provider)
+    stale = False
+    if not limits:
+        # The live probe can drop a provider transiently; the last successful
+        # read is better than a blank row, as long as it is labelled.
+        history = reports_from_history(broker_provider)
+        limits = extract(history, broker_provider)
+        if limits:
+            reports, stale = history, True
     if not limits:
         raise _no_usage_error(broker_provider, reports)
+
     accounts = accounts_for(reports, broker_provider)
     tier = tier_label
     if accounts > 1:
         tier = f"{tier_label} · {accounts} accounts".strip(" ·")
-    return au.record(agent_id, name, ready=True, limits=limits, tier_label=tier)
+    return au.record(
+        agent_id,
+        name,
+        ready=True,
+        limits=limits,
+        tier_label=tier,
+        status_text="Last known usage (broker probe is down)" if stale else "",
+    )
+
+
+def scan_per_account(
+    agent_id: str, name: str, broker_provider: str, tier_label: str = ""
+) -> dict[str, Any]:
+    """Broker-backed scan that keeps every account's windows separate."""
+    return _scan(agent_id, name, broker_provider, tier_label, limits_per_account)
+
 
 def scan_provider(
     agent_id: str, name: str, broker_provider: str, tier_label: str = ""
 ) -> dict[str, Any]:
     """Standard broker-backed scan: fetch, filter, merge, emit."""
-    reports = fetch_reports()
-    limits = limits_for(reports, broker_provider)
-    if not limits:
-        raise _no_usage_error(broker_provider, reports)
-    accounts = accounts_for(reports, broker_provider)
-    tier = tier_label
-    if accounts > 1:
-        tier = f"{tier_label} · {accounts} accounts".strip(" ·")
-    return au.record(agent_id, name, ready=True, limits=limits, tier_label=tier)
+    return _scan(agent_id, name, broker_provider, tier_label, limits_for)

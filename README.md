@@ -38,6 +38,7 @@ Broker-backed, no local credential at all:
 | Collector | Broker provider | Reports |
 |---|---|---|
 | `claude-max` | `anthropic` | 5-hour and 7-day windows, **one set per account** |
+| `codex-plan` | `openai-codex` | 5-hour and 7-day windows, including the Spark tier |
 | `google-ai-pro` | `google-antigravity` | weekly and 5-hour, per model family |
 | `cursor` | `cursor` | monthly request and spend caps |
 | `opencode` | `opencode-go` | 5-hour, weekly, monthly |
@@ -168,7 +169,7 @@ the work:
 | Provider | Blocker |
 |---|---|
 | Gemini / Google AI Pro | Google retired Code Assist for individuals on the CLI client: `loadCodeAssist` answers `UNSUPPORTED_CLIENT … migrate to the Antigravity suite`, and `retrieveUserQuota` returns 403 "no valid license". The same plan is readable through the broker's Antigravity credential, which is what `google-ai-pro` reports. |
-| Alibaba Model Studio coding plan | Connected but silent. The console quota endpoint (`/data/api.json?action=…queryCodingPlanInstanceInfoV2`) answers `{"code":"ConsoleNeedLogin"}` when called with the plan API key in the `Authorization`, `x-api-key` and `X-DashScope-API-Key` headers, and the broker ships no usage probe for the provider. The only non-browser route is the Bailian CLI: `bl usage token-plan --output json`. |
+| Alibaba Model Studio coding plan | Connected, but Alibaba accepts no API key for quota. The console endpoint (`/data/api.json?action=…queryCodingPlanInstanceInfoV2`) answers `{"code":"ConsoleNeedLogin"}` with the key in the `Authorization`, `x-api-key` and `X-DashScope-API-Key` headers; the Bailian CLI does have `bl usage coding-plan`, but it is a `[Console]` command that answers "No console access token found" under an API-key login. Either route needs `bl auth login --console` (browser) or OpenAPI AK/SK. |
 | Ollama Cloud | The broker holds the credential and reports zero limits; `ollama.com/api/tags` authenticates inference and lists models but carries no quota. Usage is rendered on `ollama.com/settings`. |
 | Kilo, Amp | Their CLIs store nothing until you sign in (`~/.config/kilo/kilo.jsonc` is bare, `~/.config/amp` holds no token), and CodexBar keeps its copies in the OS keychain. |
 

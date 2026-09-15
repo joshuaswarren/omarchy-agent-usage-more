@@ -1,0 +1,48 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the ChatGPT/Codex plan usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Codex (ChatGPT Plus/Pro) plan windows, read from the omp auth broker.
+
+Omarchy's stock `codex` collector probes the local Codex CLI app-server, so it
+reports "Run `codex login`" with no windows on a host that authenticates Codex
+through the broker instead of a local CLI session. The broker holds the
+credential and publishes the 5-hour and 7-day windows, including the Spark
+tier.
+
+Separate agent id (`codex-plan`) so it never races the stock collector for
+codex.json.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "codex-plan"
+AGENT_NAME = "Codex"
+BROKER_PROVIDER = "openai-codex"
+AUTH_HELP = "Add a credential with `omp auth-broker login openai-codex`."
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the Codex usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(
+        AGENT_ID,
+        AGENT_NAME,
+        lambda: broker.scan_per_account(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Pro"),
+        AUTH_HELP,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

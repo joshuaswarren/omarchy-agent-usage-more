@@ -42,22 +42,26 @@ def scan() -> dict:
             return au.record(AGENT_ID, AGENT_NAME, ready=True, limits=limits, tier_label=tier)
     # Distinguish "not connected" from "connected but no usage is readable" —
     # otherwise the panel tells you to log in to an account already wired up.
-    # Measured 2026-09-13: the console quota endpoint
-    # (/data/api.json?action=…queryCodingPlanInstanceInfoV2) answers
-    # {"code":"ConsoleNeedLogin"} when called with the plan API key in the
-    # Authorization, x-api-key and X-DashScope-API-Key headers, so an API key
-    # alone cannot read it.
+    # Measured 2026-09-13/15, both quota routes reject a plan API key:
+    #   * console endpoint /data/api.json?action=…queryCodingPlanInstanceInfoV2
+    #     answers {"code":"ConsoleNeedLogin"} with the key in the Authorization,
+    #     x-api-key and X-DashScope-API-Key headers;
+    #   * the Bailian CLI has `bl usage coding-plan`, but it is a [Console]
+    #     command: with an API-key login it answers "No console access token
+    #     found" and points at `bl auth login --console`.
+    # Both paths need a console session (browser login) or OpenAPI AK/SK.
     connected = [p for p in BROKER_PROVIDERS if broker.stored_credentials(p) > 0]
     if connected:
         return au.record(
             AGENT_ID,
             AGENT_NAME,
             tier_label="Coding plan" if connected[0].endswith("coding-plan") else "Token plan",
-            status_text="Connected, but no usage is readable",
+            status_text="Connected, but quota needs a console login",
             auth_help=(
-                f"The broker holds a {connected[0]} API key and publishes no usage for it. "
-                "The console quota endpoint answers ConsoleNeedLogin to an API key; the only "
-                "non-browser route is the Bailian CLI (`bl usage token-plan --output json`)."
+                f"The broker holds a {connected[0]} API key, which Alibaba does not accept for "
+                "quota. Run `bl auth login --console` (browser) or "
+                "`bl auth login --open-api --access-key-id <id> --access-key-secret <secret>`, "
+                "then `bl usage coding-plan --output json` reports it."
             ),
         )
     raise au.CollectorError(AUTH_HELP)
