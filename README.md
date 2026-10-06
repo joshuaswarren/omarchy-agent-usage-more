@@ -1,5 +1,7 @@
 # omarchy-agent-usage-more
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink)](https://github.com/sponsors/joshuaswarren)
+
 Usage collectors for AI subscriptions that Omarchy does not ship and the
 existing collector packs do not cover: **ClinePass, Kimi Code, MiniMax,
 OpenRouter**, (opt-in) **Factory**, plus **Claude Max, Cursor and OpenCode Go**
@@ -187,6 +189,14 @@ Provider endpoints and quota math were derived from
 implements all of these on macOS. The collector/runner shape follows
 [hancengiz/omarchy-agent-usage-extras](https://github.com/hancengiz/omarchy-agent-usage-extras)
 (MIT). This project is not affiliated with either.
+
+## Support
+
+Every bit of support helps keep omarchy-agent-usage-more alive and free. If you are able, [sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send a Lightning donation to `joshuaswarren@strike.me` to directly fund continued development and new integrations.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge)](https://github.com/sponsors/joshuaswarren)
+
+If financial support is not an option, you can still make a big difference: [star the repo](https://github.com/joshuaswarren/omarchy-agent-usage-more), share it, or recommend it to a colleague. Word of mouth is how most people find omarchy-agent-usage-more.
 
 ## License
 
