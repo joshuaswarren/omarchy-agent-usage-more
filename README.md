@@ -3,9 +3,11 @@
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink)](https://github.com/sponsors/joshuaswarren)
 
 Usage collectors for AI subscriptions that Omarchy does not ship and the
-existing collector packs do not cover: **ClinePass, Kimi Code, MiniMax,
-OpenRouter**, (opt-in) **Factory**, plus **Claude Max, Cursor and OpenCode Go**
-read from an [omp](https://github.com/badlogic/pi-mono) auth broker.
+existing collector packs do not cover. Eight read a provider API with one key
+(ClinePass, Kimi Code, MiniMax, OpenRouter, Warp, Kilo, Amp and, opt-in,
+Factory). Eight read an [omp](https://github.com/badlogic/pi-mono) auth broker
+(Claude Max, Codex, Google AI Pro, Cursor, OpenCode Go, Alibaba, Devin and
+Ollama Cloud).
 
 Records land in `~/.local/state/omarchy/agents/usage/`, which is the directory
 Omarchy's built-in `omarchy.agents` panel watches — and which any other
@@ -110,7 +112,7 @@ additionally needs `python-cryptography`, which Omarchy's system Python has.
 Each collector resolves its key from the first source that has one:
 
 1. environment variable — `CLINE_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
-   `OPENROUTER_API_KEY`
+   `OPENROUTER_API_KEY`, `WARP_API_KEY`, `KILO_API_KEY`, `AMP_API_KEY`
 2. `~/.config/omarchy/agents/<id>.json` → `{"apiKey": "..."}`
 3. `~/.config/codexbar/config.json` — reused when
    [CodexBar](https://github.com/steipete/CodexBar) already tracks that
