@@ -26,7 +26,7 @@ import agentusage as au  # noqa: E402
 import broker  # noqa: E402
 
 AGENT_ID = "claude-max"
-AGENT_NAME = "Claude Max"
+AGENT_NAME = "Claude"
 BROKER_PROVIDER = "anthropic"
 AUTH_HELP = "Add an Anthropic credential with `omp auth-broker login anthropic`."
 
