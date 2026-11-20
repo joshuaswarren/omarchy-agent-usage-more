@@ -80,7 +80,7 @@ def test_clinepass() -> None:
     )
 
 def test_kimi() -> None:
-    module = load("kimi")
+    module = load("kimi-plan")
     stub_http(module, {"api.kimi.com": FIXTURES["kimi"]})
     record = module.scan()
     check("kimi ready", record["ready"], True)
@@ -94,7 +94,7 @@ def test_kimi() -> None:
 
 
 def test_minimax() -> None:
-    module = load("minimax")
+    module = load("minimax-plan")
     stub_http(module, {"coding_plan/remains": FIXTURES["minimax"]})
     record = module.scan("global")
     check("minimax ready", record["ready"], True)
@@ -106,7 +106,7 @@ def test_minimax() -> None:
 
 
 def test_openrouter() -> None:
-    module = load("openrouter")
+    module = load("openrouter-plan")
     stub_http(
         module,
         {"/api/v1/key": FIXTURES["openrouter_key"], "/api/v1/credits": FIXTURES["openrouter_credits"]},
@@ -159,11 +159,29 @@ def test_broker_window_titles_and_units() -> None:
     check("missing provider", broker.limits_for(reports, "nope"), [])
 
 
-def test_opencode_plan_wiring() -> None:
-    module = load("opencode")
-    check("opencode owns the opencode id", module.AGENT_ID, "opencode")
-    check("opencode row name", module.AGENT_NAME, "OpenCode")
-    check("opencode reads the go credential", module.BROKER_PROVIDER, "opencode-go")
+def test_plan_collectors_never_share_a_stock_agent_id() -> None:
+    # Omarchy's own updater rewrites <id>.json for every stock collector, so a
+    # record under a stock id is overwritten on each panel refresh.
+    stock = {
+        path.name.removeprefix("omarchy-agent-usage-")
+        for path in Path("/usr/share/omarchy/bin").glob("omarchy-agent-usage-*")
+    }
+    for name in ("devin", "cursor", "opencode", "kimi", "minimax", "openrouter", "zai", "grok"):
+        module = load(f"{name}-plan")
+        check(f"{name} id", module.AGENT_ID, f"{name}-plan")
+        check(f"{name} id is not a stock collector", module.AGENT_ID in stock, False)
+    check("opencode reads the go credential", load("opencode-plan").BROKER_PROVIDER, "opencode-go")
+    check("grok reads the xai credential", load("grok-plan").BROKER_PROVIDER, "xai-oauth")
+
+
+def test_keyless_kimi_and_minimax_fall_back_to_the_broker() -> None:
+    calls = []
+    for name, args in (("kimi-plan", ()), ("minimax-plan", ("global",))):
+        module = load(name)
+        module.au.resolve_key = lambda *a, **k: ""
+        module.broker.scan_provider = lambda *a: calls.append(a[2]) or {"id": a[0]}
+        check(f"{name} record", module.scan(*args), {"id": name})
+    check("broker providers asked", calls, ["kimi-code", "minimax-code"])
 
 
 def test_record_defaults() -> None:

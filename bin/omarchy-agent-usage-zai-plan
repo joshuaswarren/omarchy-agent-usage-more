@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the z.ai GLM Coding Plan usage record from the omp auth broker
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""z.ai GLM Coding Plan windows (5-hour token quota, monthly Zread), from the omp auth broker.
+
+The stock `zai` collector needs ZAI_API_KEY on this machine; the broker already
+holds the key, so nothing is stored locally.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+import agentusage as au  # noqa: E402
+import broker  # noqa: E402
+
+AGENT_ID = "zai-plan"
+AGENT_NAME = "z.ai"
+BROKER_PROVIDER = "zai"
+AUTH_HELP = "Add a z.ai credential with `omp auth-broker login zai`."
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print the z.ai usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    parser.parse_args()
+    return au.run(
+        AGENT_ID,
+        AGENT_NAME,
+        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "GLM Coding Plan"),
+        AUTH_HELP,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -14,17 +14,6 @@ command -v jq >/dev/null || {
 
 chmod +x "$SRC"/bin/*
 
-# User-dir adapter overrides (same id wins over builtins): currently only
-# `opencode`, whose plan limits this repo reports. Installed as an Omarchy
-# plugin this step is manual — see README — because plugin installs run no
-# installer.
-OVERRIDE_DIR="$HOME/.config/omarchy/agent-collectors/adapters"
-if [[ -d "$SRC/adapters-overrides" ]]; then
-  mkdir -p "$OVERRIDE_DIR"
-  cp -r "$SRC"/adapters-overrides/. "$OVERRIDE_DIR"/
-fi
-
-
 # Point the unit at wherever this checkout actually lives, so a plain git clone
 # works as well as an `omarchy plugin add` install.
 sed "s|%h/.config/omarchy/plugins/io.github.joshuaswarren.agent-usage-more/bin/update-all|$SRC/bin/update-all|" \
