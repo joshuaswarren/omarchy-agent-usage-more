@@ -19,10 +19,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import agentusage as au  # noqa: E402
+import broker  # noqa: E402
 
-AGENT_ID = "kimi"
+AGENT_ID = "kimi-plan"
 AGENT_NAME = "Kimi Code"
-AUTH_HELP = "Set KIMI_API_KEY (platform.kimi.ai -> API keys)."
+AUTH_HELP = "Set KIMI_API_KEY (platform.kimi.ai -> API keys), or run `omp auth-broker login kimi-code`."
+BROKER_PROVIDER = "kimi-code"
 USAGE_URL = "https://api.kimi.com/coding/v1/usages"
 
 # Kimi reports membership levels, not marketing plan names.
@@ -83,15 +85,13 @@ def _limit_from_detail(title: str, detail) -> dict | None:
 
 def scan() -> dict:
     key = au.resolve_key(
-        AGENT_ID,
+        "kimi",
         env_vars=("KIMI_API_KEY", "MOONSHOT_API_KEY"),
         codexbar_id="kimi",
         files=("~/.config/kimi/api-key",),
     )
     if not key:
-        return au.record(
-            AGENT_ID, AGENT_NAME, status_text="Kimi unavailable", auth_help=AUTH_HELP
-        )
+        return broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Plan")
 
     payload = au.get_json(
         USAGE_URL, headers={"Authorization": f"Bearer {key}"}, label="Kimi"

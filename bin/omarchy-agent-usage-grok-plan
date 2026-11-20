@@ -1,11 +1,11 @@
 #!/usr/bin/python3
-# omarchy:summary=Print the Devin usage record from the omp auth broker
+# omarchy:summary=Print the SuperGrok usage record from the omp auth broker
 # omarchy:args=[--force] [--limits-only]
 # omarchy:hidden=true
-"""Devin ACU usage, via the omp auth broker.
+"""SuperGrok weekly credits and Grok Build weekly window, from the omp auth broker.
 
-Devin reports usage to a logged-in app.devin.ai session plus an internal
-organization id, so a local API key is not enough. The broker credential is.
+The stock `grok` collector needs a local Grok CLI sign-in; the broker already
+holds the OAuth credential (provider `xai-oauth`).
 """
 
 from __future__ import annotations
@@ -19,21 +19,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import agentusage as au  # noqa: E402
 import broker  # noqa: E402
 
-AGENT_ID = "devin"
-AGENT_NAME = "Devin"
-BROKER_PROVIDER = "devin"
-AUTH_HELP = "Add a Devin credential with `omp auth-broker login devin`."
+AGENT_ID = "grok-plan"
+AGENT_NAME = "Grok"
+BROKER_PROVIDER = "xai-oauth"
+AUTH_HELP = "Add a Grok credential with `omp auth-broker login xai-oauth`."
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Print the Devin usage record")
+    parser = argparse.ArgumentParser(description="Print the SuperGrok usage record")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limits-only", action="store_true")
     parser.parse_args()
     return au.run(
         AGENT_ID,
         AGENT_NAME,
-        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Plan"),
+        lambda: broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "SuperGrok"),
         AUTH_HELP,
     )
 

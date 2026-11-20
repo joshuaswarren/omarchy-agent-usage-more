@@ -22,10 +22,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import agentusage as au  # noqa: E402
+import broker  # noqa: E402
 
-AGENT_ID = "minimax"
+AGENT_ID = "minimax-plan"
 AGENT_NAME = "MiniMax"
-AUTH_HELP = "Set MINIMAX_API_KEY (platform.minimax.io -> API keys)."
+AUTH_HELP = "Set MINIMAX_API_KEY (platform.minimax.io -> API keys), or run `omp auth-broker login minimax-code`."
+BROKER_PROVIDER = "minimax-code"
 USAGE_URL = "https://platform.minimax.io/v1/api/openplatform/coding_plan/remains"
 REGION_URLS = {
     "global": USAGE_URL,
@@ -97,15 +99,13 @@ def _model_limits(row: dict) -> list[dict]:
 
 def scan(region: str) -> dict:
     key = au.resolve_key(
-        AGENT_ID,
+        "minimax",
         env_vars=("MINIMAX_API_KEY",),
         codexbar_id="minimax",
         files=("~/.config/minimax/api-key",),
     )
     if not key:
-        return au.record(
-            AGENT_ID, AGENT_NAME, status_text="MiniMax unavailable", auth_help=AUTH_HELP
-        )
+        return broker.scan_provider(AGENT_ID, AGENT_NAME, BROKER_PROVIDER, "Coding plan")
 
     payload = au.get_json(
         REGION_URLS.get(region, USAGE_URL),

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.joshuaswarren.agent-usage-more",
   "name": "Agent Usage More",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "joshuaswarren",
   "license": "MIT",
-  "description": "ClinePass, Kimi Code, MiniMax, OpenRouter and Factory usage records for Omarchy's built-in agents panel and any renderer that reads the usage directory.",
+  "description": "Subscription usage records for Omarchy's built-in agents panel and any renderer that reads the usage directory: Claude Max, Codex, Cursor, Devin, z.ai, SuperGrok, Kimi Code, MiniMax, OpenCode, OpenRouter, Warp and more, mostly through the omp auth broker.",
   "kinds": ["service"],
   "entryPoints": {
     "service": "Service.qml"

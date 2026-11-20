@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 import agentusage as au  # noqa: E402
 
-AGENT_ID = "openrouter"
+AGENT_ID = "openrouter-plan"
 AGENT_NAME = "OpenRouter"
 AUTH_HELP = "Set OPENROUTER_API_KEY (openrouter.ai -> Keys)."
 KEY_URL = "https://openrouter.ai/api/v1/key"
@@ -42,7 +42,7 @@ def _money(value) -> float:
 
 def scan() -> dict:
     key = au.resolve_key(
-        AGENT_ID,
+        "openrouter",
         env_vars=("OPENROUTER_API_KEY",),
         codexbar_id="openrouter",
         files=("~/.config/openrouter/api-key",),

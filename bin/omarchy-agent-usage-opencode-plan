@@ -1,13 +1,13 @@
 #!/usr/bin/python3
-# omarchy:summary=Print the Cursor usage record from the omp auth broker
+# omarchy:summary=Print the OpenCode plan usage record from the omp auth broker
 # omarchy:args=[--force] [--limits-only]
 # omarchy:hidden=true
-"""Cursor plan usage, read from the omp auth broker.
+"""OpenCode plan windows (the paid Go / Zen subscription), from the omp auth broker.
 
-Cursor publishes usage only to a logged-in web session: every other route
-wants the dashboard cookie out of a browser profile, which on Linux means a
-keyring prompt. The broker holds a Cursor credential already, so its
-`GET /v1/usage` report is the one source that needs no browser here.
+This owns the `opencode` agent id: the plan allowance is what belongs on the
+bar, not local token tallies. Pair it with the override in
+`adapters-overrides/opencode/` so the local-stats adapter in
+rohaquinlop/agent-collectors stops writing this same record.
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import agentusage as au  # noqa: E402
 import broker  # noqa: E402
 
-AGENT_ID = "cursor"
-AGENT_NAME = "Cursor"
-BROKER_PROVIDER = "cursor"
-AUTH_HELP = "Add a Cursor credential with `omp auth-broker login cursor`."
+AGENT_ID = "opencode-plan"
+AGENT_NAME = "OpenCode"
+BROKER_PROVIDER = "opencode-go"
+AUTH_HELP = "Add an OpenCode Go credential with `omp auth-broker login opencode-go`."
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Print the Cursor usage record")
+    parser = argparse.ArgumentParser(description="Print the OpenCode Go usage record")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limits-only", action="store_true")
     parser.parse_args()

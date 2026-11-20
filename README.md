@@ -3,11 +3,12 @@
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink)](https://github.com/sponsors/joshuaswarren)
 
 Usage collectors for AI subscriptions that Omarchy does not ship and the
-existing collector packs do not cover. Eight read a provider API with one key
-(ClinePass, Kimi Code, MiniMax, OpenRouter, Warp, Kilo, Amp and, opt-in,
-Factory). Eight read an [omp](https://github.com/badlogic/pi-mono) auth broker
-(Claude Max, Codex, Google AI Pro, Cursor, OpenCode Go, Alibaba, Devin and
-Ollama Cloud).
+existing collector packs do not cover. Nine read a provider API with one key
+(ClinePass, OpenRouter, Warp, Kilo, Amp and, opt-in, Factory) or, for Kimi
+Code and MiniMax, a key when one is set and the broker otherwise. Ten read an
+[omp](https://github.com/badlogic/pi-mono) auth broker (Claude Max, Codex,
+Google AI Pro, Cursor, OpenCode Go, z.ai, SuperGrok, Alibaba, Devin and Ollama
+Cloud).
 
 Records land in `~/.local/state/omarchy/agents/usage/`, which is the directory
 Omarchy's built-in `omarchy.agents` panel watches — and which any other
@@ -29,9 +30,9 @@ Direct, one API key each:
 | Collector | Source | Reports | Credential |
 |---|---|---|---|
 | `clinepass` | `api.cline.bot/api/v1/users/me/plan/usage-limits` | 5-hour, weekly, monthly | API key |
-| `kimi` | `api.kimi.com/coding/v1/usages` | rate window(s) + weekly allowance | API key |
-| `minimax` | `platform.minimax.io/v1/api/openplatform/coding_plan/remains` | session + weekly, per model family | API key |
-| `openrouter` | `openrouter.ai/api/v1/key` + `/credits` | key spend cap, prepaid balance | API key |
+| `kimi-plan` | `api.kimi.com/coding/v1/usages` | rate window(s) + weekly allowance | API key, else broker (`kimi-code`) |
+| `minimax-plan` | `platform.minimax.io/v1/api/openplatform/coding_plan/remains` | session + weekly, per model family | API key, else broker (`minimax-code`) |
+| `openrouter-plan` | `openrouter.ai/api/v1/key` + `/credits` | key spend cap, prepaid balance | API key |
 | `warp` | `app.warp.dev/graphql/v2?op=GetRequestLimitInfo` | AI request allowance, bonus credits | API key |
 | `kilo` | `api.kilo.ai/api/profile` | prepaid balance, spend limit | API key / CLI session |
 | `amp` | `ampcode.com/api/internal?userDisplayBalanceInfo` | prepaid balance | API key |
@@ -44,10 +45,12 @@ Broker-backed, no local credential at all:
 | `claude-max` | `anthropic` | 5-hour and 7-day windows, **one set per account** |
 | `codex-plan` | `openai-codex` | 5-hour and 7-day windows, including the Spark tier |
 | `google-ai-pro` | `google-antigravity` | weekly and 5-hour, per model family |
-| `cursor` | `cursor` | monthly request and spend caps |
-| `opencode` | `opencode-go` | 5-hour, weekly, monthly |
+| `cursor-plan` | `cursor` | monthly request and spend caps |
+| `opencode-plan` | `opencode-go` | 5-hour, weekly, monthly |
+| `zai-plan` | `zai` | 5-hour token quota, monthly Zread |
+| `grok-plan` | `xai-oauth` | SuperGrok weekly credits, Grok Build weekly |
 | `alibaba` | `alibaba-coding-plan`, `alibaba-token-plan` | whichever plan the credential covers |
-| `devin` | `devin` | plan windows |
+| `devin-plan` | `devin` | plan windows |
 | `ollama-cloud` | `ollama-cloud` | plan windows when Ollama publishes any |
 
 Every collector prints a record even when it fails, carrying
@@ -57,14 +60,17 @@ of showing an empty tab.
 
 ## One row per subscription
 
-`opencode` owns its agent id with the paid plan's windows. The local
-token-stats adapter for the same id (rohaquinlop/agent-collectors) would
-overwrite that record every 15 minutes, so `adapters-overrides/opencode/`
-retires it: copy that directory to
-`~/.config/omarchy/agent-collectors/adapters/` (same id wins over builtins;
-its detect path never exists, so the engine skips it without writing).
-`install.sh` does this automatically; plugin installs need the one-time copy
-because Omarchy runs no installer for plugins.
+Omarchy's own updater rewrites `<id>.json` for every stock collector (`claude`,
+`codex`, `grok`, `kimi`, `cursor`, `devin`, `zai`, `minimax`, `openrouter`,
+`opencode` and more) on each panel refresh, and writes an empty record where
+the machine has no local sign-in. A record under a stock id would be
+overwritten within minutes, so a collector whose provider has a stock twin
+takes a `-plan` id (`devin-plan`, `kimi-plan`, ...), like `claude-max` and
+`codex-plan`. Hide the stock twin in the Agents widget settings
+(`providers.<id>.enabled: false`) so each subscription has one tab. The panel
+draws marks by id, so a `-plan` row shows the module's bar glyph instead of the
+provider's logo.
+
 ## Broker-backed collectors
 
 `omp auth-broker` already holds the OAuth credentials omp uses and publishes
@@ -144,7 +150,7 @@ when it goes stale.
 
 ```sh
 bin/update-all            # all collectors, writes records
-bin/omarchy-agent-usage-kimi | jq    # one collector, straight to stdout
+bin/omarchy-agent-usage-kimi-plan | jq    # one collector, straight to stdout
 omarchy-shell agent-usage-more refresh   # when installed as a plugin
 ```
 
