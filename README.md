@@ -54,8 +54,7 @@ Broker-backed, no local credential at all:
 | `ollama-cloud` | `ollama-cloud` | plan windows when Ollama publishes any |
 
 Every collector prints a record even when it fails, carrying
-`usageStatusText` and `authHelpText` so the panel can explain itself instead
-of showing an empty tab.
+`usageStatusText` and `authHelpText` so the panel never shows an empty tab.
 
 
 ## One row per subscription
@@ -173,8 +172,7 @@ Fixture-driven, no network: captured provider payloads in, records out, with
 the percent math, window titles and reset timestamps pinned.
 
 ## Not covered, and why
-Findings from probing each provider on Linux (2026-09-13), so nobody repeats
-the work:
+
 
 | Provider | Blocker |
 |---|---|
@@ -200,11 +198,7 @@ implements all of these on macOS. The collector/runner shape follows
 
 ## Support
 
-Every bit of support helps keep omarchy-agent-usage-more alive and free. If you are able, [sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send a Lightning donation to `joshuaswarren@strike.me` to directly fund continued development and new integrations.
-
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge)](https://github.com/sponsors/joshuaswarren)
-
-If financial support is not an option, you can still make a big difference: [star the repo](https://github.com/joshuaswarren/omarchy-agent-usage-more), share it, or recommend it to a colleague. Word of mouth is how most people find omarchy-agent-usage-more.
+[Sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send Lightning to `joshuawarren@strike.me`.
 
 ## License
 
