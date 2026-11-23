@@ -198,7 +198,7 @@ implements all of these on macOS. The collector/runner shape follows
 
 ## Support
 
-[Sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send Lightning to `joshuawarren@strike.me`.
+[Sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send Lightning to `joshuaswarren@strike.me`.
 
 ## License
 
